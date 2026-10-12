@@ -1,0 +1,62 @@
+FROM --platform=linux/arm64 python:3.13-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+ curl \
+ nodejs \
+ npm \
+ # Hangul glyphs for matplotlib / ReportLab in execute_code
+ fonts-nanum \
+ fontconfig \
+ && fc-cache -f \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade "setuptools>=83.0.0" \
+ && pip install "urllib3>=2.7.0" boto3 botocore --upgrade
+RUN pip install langchain_aws "langchain[mcp]>=1.4.0" langchain_community "langgraph>=1.2.11" langchain-openai "openai>=2.41.0" aws-bedrock-token-generator
+RUN pip install langgraph-checkpoint-sqlite aiosqlite
+# MCP 2.x MCPServer + SigV4 (httpx2); langchain[mcp] pulls fastmcp; preinstall aws-documentation
+RUN pip install "mcp>=2.1.1" httpx2 awslabs.aws-documentation-mcp-server
+RUN pip install "bedrock-agentcore>=1.18.1" uv
+RUN pip install Pillow pytz tavily-python langchain-text-splitters
+RUN pip install networkx
+RUN pip install requests beautifulsoup4
+RUN pip install python-docx openpyxl reportlab matplotlib pandas finance-datareader pypdf pdfplumber pymupdf pyyaml defusedxml lxml
+RUN pip install colorama rich
+RUN pip install python-dotenv
+
+# LangGraph runtime + graph embedding lib (hybrid wiki search on AgentCore)
+COPY runtime_agent/langgraph/ .
+COPY graph/lib/ graph/lib/
+
+# Skills that use docx-js / pptxgenjs / sharp via bash/node (local install for require())
+# mcp-server-fetch-typescript: preinstall so web_fetch MCP skips npx/npm cold start
+RUN npm install docx pptxgenjs sharp mcp-server-fetch-typescript
+ENV NODE_PATH=/app/node_modules
+ENV PATH="/app/node_modules/.bin:${PATH}"
+
+# OpenTelemetry (ADOT + LangChain instrumentation for AgentCore Evaluations)
+RUN pip install aws-opentelemetry-distro>=0.10.0
+RUN pip install opentelemetry-instrumentation-langchain
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser \
+ && chown -R appuser:appuser /app
+
+USER appuser
+
+# Add runtime + graph/lib to Python path (graph_embeddings → lib.embeddings)
+ENV PYTHONPATH=/app:/app/graph
+ENV APP_CONFIG_PATH=/app/config.json
+# Minimal config (MCP/LangGraph agent without full RAG keys in config.json)
+ENV ALLOW_MISSING_RAG_CONFIG=1
+ENV SESSION_STORAGE_DIR=/mnt/workspace
+ENV OTEL_PYTHON_DISTRO=aws_distro
+ENV OTEL_PYTHON_CONFIGURATOR=aws_configurator
+ENV OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+ARG OTEL_SERVICE_NAME=langgraph_runtime.DEFAULT
+ENV OTEL_RESOURCE_ATTRIBUTES=service.name=${OTEL_SERVICE_NAME}
+
+EXPOSE 8080
+
+CMD ["uv", "run", "opentelemetry-instrument", "uvicorn", "agent:app", "--host", "0.0.0.0", "--port", "8080"]
