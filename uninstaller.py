@@ -1732,16 +1732,22 @@ def delete_agentcore_memory(skip_confirmation: bool = False) -> bool:
         except (OSError, json.JSONDecodeError):
             pass
 
-        from bedrock_agentcore.memory import MemoryClient
-
-        memory_client = MemoryClient(region_name=region)
+        memory_control = boto3.client("bedrock-agentcore-control", region_name=region)
         if not memory_id:
-            memories = memory_client.list_memories()
-            for memory in memories:
-                mid = memory.get("id", "")
-                if mid.split("-")[0] == memory_name:
-                    memory_id = mid
-                    logger.info(f"  Found memory by name: {memory_id}")
+            next_token = None
+            while not memory_id:
+                kwargs = {"maxResults": 100}
+                if next_token:
+                    kwargs["nextToken"] = next_token
+                response = memory_control.list_memories(**kwargs)
+                for memory in response.get("memories", []):
+                    mid = memory.get("id", "")
+                    if mid.split("-")[0] == memory_name:
+                        memory_id = mid
+                        logger.info(f"  Found memory by name: {memory_id}")
+                        break
+                next_token = response.get("nextToken")
+                if memory_id or not next_token:
                     break
 
         if not memory_id:
@@ -1762,9 +1768,19 @@ def delete_agentcore_memory(skip_confirmation: bool = False) -> bool:
                 )
                 return False
 
-        memory_client.delete_memory_and_wait(memory_id)
-        logger.info(f"  ✓ Deleted AgentCore Memory: {memory_id}")
-        return True
+        memory_control.delete_memory(memoryId=memory_id)
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            try:
+                memory_control.get_memory(memoryId=memory_id)
+            except ClientError as wait_error:
+                if wait_error.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+                    logger.info(f"  ✓ Deleted AgentCore Memory: {memory_id}")
+                    return True
+                raise
+            time.sleep(10)
+        logger.warning(f"  Timed out waiting for AgentCore Memory deletion: {memory_id}")
+        return False
     except Exception as e:
         error_code = ""
         if isinstance(e, ClientError):

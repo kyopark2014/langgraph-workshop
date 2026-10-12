@@ -25,11 +25,6 @@ from botocore.exceptions import ClientError, NoCredentialsError, ParamValidation
 import urllib.request
 import urllib.error
 
-try:
-    from bedrock_agentcore.memory import MemoryClient
-except ImportError:
-    MemoryClient = None  # type: ignore
-
 # Configuration
 project_name = "langgraph-workshop" # at least 3 characters
 region = "us-west-2"
@@ -4921,40 +4916,88 @@ def _shared_memory_strategies() -> list:
     ]
 
 
+def _agentcore_memory_control_client():
+    """Control-plane client in the deployment region (not the gateway region)."""
+    return boto3.client("bedrock-agentcore-control", region_name=region)
+
+
+def _list_agentcore_memories() -> List[Dict]:
+    """List AgentCore memories in the deployment region."""
+    client = _agentcore_memory_control_client()
+    memories: List[Dict] = []
+    next_token = None
+    while True:
+        kwargs: Dict = {"maxResults": 100}
+        if next_token:
+            kwargs["nextToken"] = next_token
+        response = client.list_memories(**kwargs)
+        memories.extend(response.get("memories", []))
+        next_token = response.get("nextToken")
+        if not next_token:
+            break
+    return memories
+
+
+def _wait_for_agentcore_memory_active(memory_id: str, timeout_seconds: int = 300) -> Dict:
+    """Poll until an AgentCore memory reaches ACTIVE."""
+    client = _agentcore_memory_control_client()
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        memory = client.get_memory(memoryId=memory_id)["memory"]
+        status = memory.get("status", "")
+        if status == "ACTIVE":
+            logger.info(f"  AgentCore memory is ready: {memory_id}")
+            return memory
+        if status == "FAILED":
+            reason = memory.get("failureReason") or "Unknown"
+            raise RuntimeError(f"AgentCore memory {memory_id} creation failed: {reason}")
+        logger.info(f"  Waiting for AgentCore memory ({memory_id}) status: {status}")
+        time.sleep(10)
+    raise TimeoutError(
+        f"Timed out waiting for AgentCore memory {memory_id} to become ACTIVE"
+    )
+
+
 def create_agentcore_memory(role_arn: str, user_id: str = "installer") -> str:
     """
     Create AgentCore Memory with shared UserPreference / Summary / Semantic strategies.
 
-    user_id is unused for strategy naming — kept for call-site compatibility.
-    User isolation uses {actorId}/{sessionId} namespace templates from CreateEvent.
+    Uses the bedrock-agentcore-control API so the deploy host does not need the
+    bedrock-agentcore SDK. user_id is unused for strategy naming — kept for
+    call-site compatibility. User isolation uses {actorId}/{sessionId}
+    namespace templates from CreateEvent.
     """
     logger.info("[2/10] Creating AgentCore Memory")
 
-    if MemoryClient is None:
-        raise ImportError(
-            "bedrock-agentcore is required to create AgentCore Memory. "
-            "Install with: pip install bedrock-agentcore"
+    client = _agentcore_memory_control_client()
+    if not hasattr(client, "create_memory"):
+        raise RuntimeError(
+            "boto3 bedrock-agentcore-control client has no create_memory. "
+            "Upgrade with: "
+            f"pip install --upgrade 'boto3>={MIN_BOTO3_VERSION_FOR_AGENTCORE_CONNECTOR}'"
         )
-
-    memory_client = MemoryClient(region_name=region)
     memory_name = project_name.replace("-", "_")
 
-    memories = memory_client.list_memories()
-    for memory in memories:
-        if memory.get("id", "").split("-")[0] == memory_name:
-            memory_id = memory.get("id")
+    for memory in _list_agentcore_memories():
+        memory_id = memory.get("id", "")
+        if memory_id.split("-")[0] == memory_name:
             logger.info(f"  Memory already exists: {memory_id}")
             return memory_id
 
     strategies = _shared_memory_strategies()
-    result = memory_client.create_memory_and_wait(
+    result = client.create_memory(
         name=memory_name,
         description=f"Memory for {project_name}",
-        event_expiry_days=365,
-        strategies=strategies,
-        memory_execution_role_arn=role_arn,
+        eventExpiryDuration=365,
+        memoryStrategies=strategies,
+        memoryExecutionRoleArn=role_arn,
+        clientToken=secrets.token_hex(16),
     )
-    memory_id = result.get("id")
+    memory = result["memory"]
+    memory_id = memory["id"]
+    if memory.get("status") != "ACTIVE":
+        memory = _wait_for_agentcore_memory_active(memory_id)
+        memory_id = memory["id"]
     names = [s["customMemoryStrategy"]["name"] for s in strategies]
     logger.info(f"  ✓ Memory created: {memory_id} (strategies={names})")
     return memory_id
