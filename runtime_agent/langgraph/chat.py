@@ -72,7 +72,7 @@ s3_image_prefix = "images"
 path = config.get('sharing_url', '')
 doc_prefix = "docs/"
 
-model_name = "Claude 5.0 Sonnet"
+model_name = "Claude 4.6 Sonnet"
 model_type = "claude"
 models = info.get_model_info(model_name)
 model_id = models[0]["model_id"]

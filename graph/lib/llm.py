@@ -75,7 +75,7 @@ def resolve_bedrock_model_id(model: str) -> str:
     """Map gateway alias / UI name to a Bedrock model id."""
     raw = (model or "").strip()
     if not raw:
-        return _BEDROCK_MODEL_IDS["claude-haiku-4-5"]
+        return _BEDROCK_MODEL_IDS["claude-sonnet-4-6"]
     # Already a Bedrock / inference-profile id.
     if (
         raw.startswith("us.")

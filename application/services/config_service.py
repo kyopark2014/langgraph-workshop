@@ -41,7 +41,7 @@ MODELS = [
     "OpenAI OSS 20B",
 ]
 
-DEFAULT_MODEL = "Claude 5.0 Sonnet"
+DEFAULT_MODEL = "Claude 4.6 Sonnet"
 
 
 def load_capability_list(filename: str) -> list[str]:

@@ -86,7 +86,7 @@ flowchart TB
 | 단계 | 스크립트 | LLM? |
 |------|----------|------|
 | 1. DB → corpus | `export_corpus.py` | 없음 |
-| 2. corpus → graph.json | `run_extract.py` | **LiteLLM** (기본 `claude-haiku-4-5`) |
+| 2. corpus → graph.json | `run_extract.py` | **LiteLLM** (기본 `claude-sonnet-4-6`) |
 | 3. 사용자별 HTML | `publish_out.py` | 없음 (클러스터 + rich UI) |
 
 
@@ -139,10 +139,10 @@ python publish_out.py
 3. **gateway 없음**: AWS Bedrock Converse (`runtime_agent/langgraph`와 동일)
    - 리전: `GRAPHIFY_BEDROCK_REGION` → `AWS_REGION` → `config.json` `region`
    - 모델: `GRAPHIFY_BEDROCK_MODEL` 또는 `GRAPHIFY_LLM_MODEL` 매핑
-     (`claude-haiku-4-5` → `us.anthropic.claude-haiku-4-5-20251001-v1:0`)
+     (`claude-sonnet-4-6` → `us.anthropic.claude-sonnet-4-6`)
    - 자격증명: boto3 기본 credential chain (IAM / `~/.aws`)
 
-모델은 `graph/.env`의 `GRAPHIFY_LLM_MODEL`(기본 `claude-haiku-4-5`).
+모델은 `graph/.env`의 `GRAPHIFY_LLM_MODEL`(기본 `claude-sonnet-4-6`).
 Gateway 사용 시 Claude / GPT / Gemini 등 LiteLLM id를 그대로 쓰면 됩니다.
 
 관련 코드:
