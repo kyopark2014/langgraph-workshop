@@ -441,26 +441,11 @@ def _is_publishable_s3_key(key: str) -> bool:
     return len(parts) >= 3 and parts[1] == "artifacts"
 
 
-def _workspace_mount_object_key(full_path: str) -> str | None:
-    """Object key when the file is already on the bucket-root workspace mount."""
-    mount = "/mnt/workspace"
-    if not full_path or not os.path.isdir(mount):
-        return None
-    real = os.path.realpath(full_path)
-    root_path = os.path.realpath(mount)
-    try:
-        if os.path.commonpath([real, root_path]) != root_path:
-            return None
-    except ValueError:
-        return None
-    rel = os.path.relpath(real, root_path).replace(os.sep, "/")
-    if rel in ("", ".") or rel.startswith("../"):
-        return None
-    return rel
-
-
 def _upload_file_to_project_s3(filepath: str, full_path: str | None = None) -> str:
     """Upload a local file to the project S3 bucket; return the object key.
+
+    ``/mnt/workspace`` is AgentCore session storage, not the CloudFront origin
+    bucket, so a file there is still copied with put_object.
 
     Raises ValueError/FileNotFoundError/RuntimeError on failure.
     """
@@ -475,10 +460,6 @@ def _upload_file_to_project_s3(filepath: str, full_path: str | None = None) -> s
         raise FileNotFoundError(f"File not found: {filepath} (resolved: {resolved})")
 
     key = _s3_key_for_upload(filepath, resolved)
-    mount_key = _workspace_mount_object_key(resolved)
-    if mount_key and "/artifacts/" in mount_key and _is_publishable_s3_key(mount_key):
-        logger.info("artifact already on workspace mount: %s", mount_key)
-        return mount_key
     if not _is_publishable_s3_key(key):
         raise ValueError(
             "Upload rejected: S3 key must be images/, docs/, artifacts/, "
@@ -501,9 +482,9 @@ def _upload_file_to_project_s3(filepath: str, full_path: str | None = None) -> s
 def _ensure_artifacts_uploaded(relative_paths: list) -> None:
     """Push newly created artifact files to project S3 when sharing_url is set.
 
-    execute_code / write_file store files on the S3 Files mount
-    (``/mnt/workspace/...``). CloudFront serves the separate project bucket
-    (``artifacts/{user}/...``), so UI URLs 403 unless we also put_object there.
+    execute_code / write_file store files on AgentCore session storage
+    (``/mnt/workspace/...``). CloudFront serves the project bucket
+    (``{user}/artifacts/...``), so the file is copied there with put_object.
     """
     if not sharing_url or not config.get("s3_bucket"):
         return
