@@ -4,9 +4,16 @@
     "websearch",
     "aws documentation",
     "korea_weather",
-    "memory"
+    "memory",
+    "knowledge base",
+    "trade info"
   ],
   "SKILL": [
-    "skill-creator"
+    "last30days",
+    "korea-weather",
+    "docx",
+    "my-schedule",
+    "pptx",
+    "xlsx"
   ]
 }
