@@ -4,8 +4,8 @@ Upload content to S3 and sync Knowledge Base data source
 """
 
 import boto3
+import json
 import os
-import sys
 import logging
 from botocore.exceptions import ClientError
 
@@ -14,18 +14,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 workingDir = os.path.dirname(os.path.abspath(__file__))
-_strands_dir = os.path.join(workingDir, "runtime_agent", "strands")
-if _strands_dir not in sys.path:
-    sys.path.insert(0, _strands_dir)
-
-import utils  # noqa: E402
-
 _app_config_path = os.path.join(workingDir, "application", "config.json")
 
 
 def _require_config():
-    """Load shared config (application/config.json via utils.load_config)."""
-    config = utils.load_config(_app_config_path if os.path.isfile(_app_config_path) else None)
+    """Load application/config.json written by installer.py."""
+    if not os.path.isfile(_app_config_path):
+        logger.error(
+            "Missing %s. Run `python installer.py` first to deploy and write it.",
+            _app_config_path,
+        )
+        exit(1)
+    with open(_app_config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
     if not config.get("s3_bucket") or not config.get("knowledge_base_id"):
         logger.error(
             "Missing s3_bucket/knowledge_base_id in config. "

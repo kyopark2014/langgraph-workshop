@@ -971,6 +971,20 @@ def _get_ecs_task_inline_policies() -> List[Dict]:
                         ],
                     },
                     {
+                        "Sid": "BedrockMarketplaceSubscription",
+                        "Effect": "Allow",
+                        "Action": [
+                            "aws-marketplace:ViewSubscriptions",
+                            "aws-marketplace:Subscribe",
+                        ],
+                        "Resource": "*",
+                        "Condition": {
+                            "StringEquals": {
+                                "aws:CalledViaLast": "bedrock.amazonaws.com",
+                            },
+                        },
+                    },
+                    {
                         "Sid": "KnowledgeBaseIngestion",
                         "Effect": "Allow",
                         "Action": [
