@@ -2250,7 +2250,6 @@ async def create_agent(
 
     if server_params:
         try:
-            mcp_tools = []
             max_retries = 3 if has_agentcore else 1
             if has_agentcore:
                 logger.info(
@@ -2258,12 +2257,13 @@ async def create_agent(
                 )
             for server_name, params in server_params.items():
                 loaded = False
+                server_tools: list = []
                 for attempt in range(1, max_retries + 1):
                     try:
+                        # One server per adapter so each tool keeps that server name.
                         async with MCPAdapter({"mcpServers": {server_name: params}}) as adapter:
                             logger.info(f"MCP client initialized for server: {server_name}")
-                            _tools = await adapter.list_tools()
-                        mcp_tools.extend(_tools)
+                            server_tools = await adapter.list_tools()
                         loaded = True
                         break
                     except Exception as e:
@@ -2280,16 +2280,16 @@ async def create_agent(
                             wait_seconds,
                         )
                         await asyncio.sleep(wait_seconds)
+                if not loaded:
+                    continue
 
-            mcp_tools = wrap_tavily_mcp_tools(mcp_tools)
-
-            for tool in mcp_tools:
-                logger.info(f"mcp_tool: {tool.name} (from {server_name})")
-                if tool.name not in [t.name for t in tools]:
-                    tools.append(tool)
-                    mcp_tool_servers[tool.name] = server_name
-                else:
-                    logger.info(f"mcp_tool of {tool.name} already in tools")
+                for tool in wrap_tavily_mcp_tools(server_tools):
+                    logger.info(f"mcp_tool: {tool.name} (from {server_name})")
+                    if tool.name not in [t.name for t in tools]:
+                        tools.append(tool)
+                        mcp_tool_servers[tool.name] = server_name
+                    else:
+                        logger.info(f"mcp_tool of {tool.name} already in tools")
         except Exception as e:
             logger.error(f"Error creating MCP client or getting tools: {e}")
             if getattr(e, "__cause__", None):
