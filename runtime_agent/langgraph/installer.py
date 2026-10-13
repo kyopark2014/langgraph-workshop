@@ -1724,6 +1724,13 @@ def sync_ecs_app_config(app_config: dict) -> bool:
         print(f"  agent_runtime_arn: {agent_runtime_arn}")
         return True
     except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in {"ClusterNotFoundException", "ServiceNotFoundException"}:
+            print(
+                f"  ECS service not found ({cluster_name}/{service_name}); "
+                "skipping sync (UI may not be deployed yet)"
+            )
+            return True
         print(f"Warning: Failed to sync ECS APP_CONFIG_JSON: {e}")
         print("  Local config was updated; redeploy ECS or rerun root installer to apply.")
         return True
