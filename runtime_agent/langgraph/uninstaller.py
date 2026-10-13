@@ -68,7 +68,7 @@ def _monitoring_dashboard_name(config: dict) -> str:
     name = config.get("cloudwatch_dashboard_name")
     if name:
         return name
-    project_name = _project_name(config)
+    project_name = (config.get("knowledge_base_name") or "").strip() or _project_name(config)
     try:
         from cloudwatch_metrics import dashboard_name
 

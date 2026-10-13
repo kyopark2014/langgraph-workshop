@@ -2070,9 +2070,10 @@ def create_monitoring_dashboard():
         from cloudwatch_metrics import create_bedrock_usage_dashboard, create_cloudwatch_dashboard
 
         config = load_config()
-        project_name = config.get("projectName", "langgraph-runtime")
+        project_name = get_knowledge_base_name()
         region = config.get("region")
         agent_runtime_arn = config.get("agent_runtime_arn")
+        previous_name = (config.get("cloudwatch_dashboard_name") or "").strip()
 
         if not region:
             print("Error: region not found in config.json")
@@ -2085,6 +2086,17 @@ def create_monitoring_dashboard():
         dashboard = create_cloudwatch_dashboard(project_name, agent_runtime_arn, region)
         if dashboard:
             update_config("cloudwatch_dashboard_name", dashboard)
+            if previous_name and previous_name != dashboard:
+                try:
+                    boto3.client("cloudwatch", region_name=region).delete_dashboards(
+                        DashboardNames=[previous_name]
+                    )
+                    print(f"  ✓ Removed previous dashboard: {previous_name}")
+                except ClientError as e:
+                    print(
+                        f"  Warning: could not remove previous dashboard "
+                        f"{previous_name}: {e}"
+                    )
             return True
 
         if bedrock_dashboard:
