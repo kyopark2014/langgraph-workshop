@@ -1569,6 +1569,36 @@ def _package_schedule_lambda_zip() -> bytes:
         zf.write(src, arcname="lambda_function.py")
     return buf.getvalue()
 
+# IAM role creation is visible to KMS CreateGrant later than to IAM GetRole.
+# Lambda env encryption calls CreateGrant immediately, and a too-early call fails
+# with InvalidParameterValueException / InvalidArnException.
+_SCHEDULE_LAMBDA_KMS_GRANT_RETRY_DELAYS = (15, 20, 30, 30, 45)
+
+
+def _is_lambda_kms_grant_not_ready(error: ClientError) -> bool:
+    err = error.response.get("Error", {})
+    return (
+        err.get("Code") == "InvalidParameterValueException"
+        and "invalid for CreateGrant" in err.get("Message", "")
+    )
+
+
+def _call_with_kms_grant_retry(action, description: str):
+    delays = _SCHEDULE_LAMBDA_KMS_GRANT_RETRY_DELAYS
+    for attempt in range(len(delays) + 1):
+        try:
+            return action()
+        except ClientError as e:
+            if not _is_lambda_kms_grant_not_ready(e) or attempt >= len(delays):
+                raise
+            wait = delays[attempt]
+            logger.warning(
+                f"  {description}: KMS has not yet recognized the Lambda role "
+                f"(attempt {attempt + 1}/{len(delays) + 1}); retrying in {wait}s"
+            )
+            time.sleep(wait)
+
+
 def create_or_update_schedule_lambda(
     *,
     role_arn: str,
@@ -1588,8 +1618,9 @@ def create_or_update_schedule_lambda(
         }
     }
     logger.info(f"[schedule] Deploying Lambda: {fn_name}")
-    try:
-        resp = lambda_client.create_function(
+
+    def _create():
+        return lambda_client.create_function(
             FunctionName=fn_name,
             Runtime="python3.12",
             Role=role_arn,
@@ -1601,6 +1632,18 @@ def create_or_update_schedule_lambda(
             Description=f"my-schedule runner for {project_name}",
             Tags={"Project": project_name, "Name": fn_name},
         )
+
+    def _update_config():
+        return lambda_client.update_function_configuration(
+            FunctionName=fn_name,
+            Role=role_arn,
+            Timeout=60,
+            MemorySize=256,
+            Environment=env,
+        )
+
+    try:
+        resp = _call_with_kms_grant_retry(_create, "CreateFunction")
         arn = resp["FunctionArn"]
         logger.info(f"  ✓ Created Lambda: {arn}")
     except ClientError as e:
@@ -1610,23 +1653,13 @@ def create_or_update_schedule_lambda(
         # Wait briefly for code update before config update
         time.sleep(2)
         try:
-            lambda_client.update_function_configuration(
-                FunctionName=fn_name,
-                Role=role_arn,
-                Timeout=60,
-                MemorySize=256,
-                Environment=env,
-            )
+            _call_with_kms_grant_retry(_update_config, "UpdateFunctionConfiguration")
         except ClientError as cfg_err:
             # Concurrent update during code publish — retry once
             if cfg_err.response["Error"]["Code"] == "ResourceConflictException":
                 time.sleep(5)
-                lambda_client.update_function_configuration(
-                    FunctionName=fn_name,
-                    Role=role_arn,
-                    Timeout=60,
-                    MemorySize=256,
-                    Environment=env,
+                _call_with_kms_grant_retry(
+                    _update_config, "UpdateFunctionConfiguration"
                 )
             else:
                 raise
