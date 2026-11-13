@@ -34,7 +34,7 @@ CDK 스택과 동등한 AWS 인프라를 프로그래밍 방식으로 배포합�
 - **ECS Fargate 배포**: multi-stage Dockerfile 이미지를 ECR에 push한 뒤 ECS Fargate(ARM64) 서비스로 실행
 - **AgentCore 연동**: CloudFront URL·S3 Files 반영 후 LangGraph Runtime installer를 자동 호출
 - **SSE 장시간 스트림**: ALB idle timeout·CloudFront origin read timeout을 120초로 설정
-- **AgentCore Web Search Gateway**: `us-east-1` managed web-search connector
+- **AgentCore Web Search Gateway**: `us-west-2` managed web-search connector
 
 ### 사전 요구사항
 - **ARM64 빌드 호스트**: ECS/AgentCore 이미지는 `linux/arm64` 네이티브 빌드만 지원 (예: t4g, m7g EC2). x86 호스트에서는 QEMU 크로스 빌드 없이 즉시 실패합니다.
@@ -52,7 +52,7 @@ CDK 스택과 동등한 AWS 인프라를 프로그래밍 방식으로 배포합�
 # 기본 설정 (installer.py 상단)
 project_name = "langgraph-runtime"   # 프로젝트 이름 (최소 3자)
 region = "us-west-2"                 # AWS 리전 (ECS·VPC·KB 등)
-AGENTCORE_GATEWAY_REGION = "us-east-1"  # AgentCore Web Search Gateway 전용 리전
+AGENTCORE_GATEWAY_REGION = "us-west-2"  # AgentCore Web Search Gateway 전용 리전
 AGENTCORE_WEBSEARCH_GATEWAY_NAME = "gateway-websearch"
 AGENTCORE_WEBSEARCH_TARGET_NAME = "websearch"
 git_name = "langgraph-runtime"       # Git 저장소 이름 (레거시 EC2 SSM 배포용)
@@ -110,7 +110,7 @@ ALB_ORIGIN_HEADER_SECRET_NAME = f"{project_name}/cloudfront-alb-origin-header"
 | `role-agent-for-{project_name}-{region}` | Bedrock Agent용 역할 |
 | `role-ecs-task-for-{project_name}-{region}` | ECS 태스크용 역할 (Bedrock, S3, AgentCore invoke, Secrets Manager, S3 Files mount 등) |
 | `role-ecs-execution-for-{project_name}-{region}` | ECS 태스크 실행 역할 (ECR pull, CloudWatch Logs) |
-| `role-agentcore-gateway-websearch-for-{project_name}` | AgentCore Web Search gateway용 역할 (`us-east-1`) |
+| `role-agentcore-gateway-websearch-for-{project_name}` | AgentCore Web Search gateway용 역할 (`us-west-2`) |
 | `role-s3files-sync-for-{project_name}` | S3 Files ↔ S3 bucket 동기화 역할 (`elasticfilesystem.amazonaws.com` trust) |
 
 > `create_lambda_role()`, `create_agentcore_memory_role()` 함수는 코드에 남아 있으나, 현재 `main()` 배포 흐름에서는 호출되지 않습니다.
@@ -223,7 +223,7 @@ Runtime은 session access point ARN이 있으면 **`s3FilesAccessPoint` + VPC �
 #### AgentCore Web Search Gateway
 - **이름**: `gateway-websearch`
 - **타겟 이름**: `websearch`
-- **리전**: `us-east-1` (AgentCore Gateway 전용)
+- **리전**: `us-west-2` (AgentCore Gateway 전용)
 - **프로토콜**: MCP (`AWS_IAM` 인증)
 - **타겟**: managed `web-search` connector
 - **용도**: Runtime의 `websearch` MCP (AgentCore Gateway 경유)
