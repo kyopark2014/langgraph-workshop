@@ -11,6 +11,7 @@ import {
   sortTasks,
 } from "./services/taskService";
 import {
+  applyRunDraftToMessages,
   buildDisplayPrompt,
   buildOptimisticUserMessage,
   buildPendingAssistantMessage,
@@ -184,7 +185,9 @@ export default function App() {
         if (cancelled || activeTaskIdRef.current !== taskId) return;
 
         if (run.status === "running") {
-          await loadMessages(taskId);
+          // Avoid re-downloading the full transcript every poll; /run already
+          // carries the live draft + tool_events.
+          setMessages((prev) => applyRunDraftToMessages(prev, taskId, run));
         } else if (
           run.status === "done" ||
           run.status === "error" ||
@@ -200,9 +203,13 @@ export default function App() {
           await loadMessages(taskId);
           finishRecovery();
           return;
+        } else if (run.status === "pending") {
+          // Last message is user and no live registry — abandoned / not running.
+          uiLog("run:recovery pending (idle)", { taskId, attempts });
+          finishRecovery();
+          return;
         }
 
-        // running / pending — keep waiting
         if (attempts >= RUN_RECOVERY_MAX_ATTEMPTS) {
           uiLog("run:recovery timeout", { taskId, attempts });
           finishRecovery();
@@ -835,6 +842,8 @@ export default function App() {
               syncModel={activeTask?.model_name}
               disabled={!activeTask}
               waiting={showWaiting}
+              streamEvents={activeStream.streamEvents}
+              streamText={activeStream.streamText}
               queuedMessages={activeQueuedMessages}
               queuePaused={activeQueuePaused}
               onRemoveQueued={handleRemoveQueued}
